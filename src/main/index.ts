@@ -73,6 +73,13 @@ async function main(): Promise<void> {
     backupSaves: () => engine.backupSaves(),
     readTestLogs: (since, names) => engine.readTestLogs(since, names),
     summarizeTest: (findings, notes) => engine.summarizeTest(findings, notes),
+    getKnowledge: () => engine.getKnowledge(),
+    saveKnowledgeEntry: (kind, entry) => engine.saveKnowledgeEntry(kind, entry),
+    deleteKnowledgeEntry: (id) => engine.deleteKnowledgeEntry(id),
+    knowledgeFor: (t) => engine.knowledgeFor(t),
+    recordOutcome: (id, outcome, note) => engine.recordOutcome(id, outcome, note),
+    exportKnowledge: () => engine.exportKnowledge(),
+    importKnowledge: (file) => engine.importKnowledge(file),
     getChangelog: () => engine.getChangelog(),
     undo: (id) => engine.undo(id),
     openPath: async (p) => {

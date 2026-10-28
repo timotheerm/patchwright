@@ -1,11 +1,13 @@
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
-import type { CheckResult, FrameworkStatus, JobState, JobStep, LogLine, ModRef, PatchInfo, TriageResult } from '../../shared/types'
+import type { CheckResult, FixOutcome, FrameworkStatus, JobState, JobStep, LogLine, ModRef, PatchInfo, TriageResult } from '../../shared/types'
 import type { AiBackend } from '../ai/types'
 import { fixName, type CoreContext } from '../context'
 import type { AiRequests, GameAdapter, JobWorkspace } from '../games/types'
 import { copyDir, ensureDir, exists, nowIso, readJson, safeName, timestampSlug, walk, writeJson } from '../util'
-import { feedbackMarkdown, systemPrompt, taskMarkdown, WRITABLE } from './prompts'
+import { queryFromTriage, selectKnowledge } from '../knowledge/match'
+import type { FixMeta, KnowledgeStore } from '../knowledge/store'
+import { feedbackMarkdown, knowledgeMarkdown, systemPrompt, taskMarkdown, WRITABLE } from './prompts'
 
 export interface JobDeps {
   ctx: CoreContext
@@ -14,6 +16,7 @@ export interface JobDeps {
   patch: () => Promise<PatchInfo | undefined>
   frameworks: () => Promise<FrameworkStatus[]>
   installedMods: () => Promise<ModRef[]>
+  knowledge: KnowledgeStore
 }
 
 interface JobRecord {
@@ -108,6 +111,14 @@ export class JobManager {
     await this.save(rec)
   }
 
+  async setOutcome(id: string, outcome: FixOutcome): Promise<JobState | undefined> {
+    const rec = this.jobs.get(id)
+    if (!rec) return undefined
+    rec.state.outcome = outcome
+    await this.save(rec)
+    return rec.state
+  }
+
   cancel(id: string): void {
     const j = this.jobs.get(id)
     j?.abort?.abort()
@@ -198,7 +209,16 @@ export class JobManager {
       const prep = await game.prepareWorkspace(ws, ctx, log)
       await writeJson(path.join(ws.reportsDir, 'checks.json'), [...t.checks, ...prep])
       const frameworks = await this.d.frameworks()
-      await fs.writeFile(path.join(st.dir, 'TASK.md'), taskMarkdown(ws, t, prep, frameworks, dependents, game))
+      const relevant = selectKnowledge(await this.d.knowledge.all(), queryFromTriage(t, patch, await readReports(ws.reportsDir)))
+      await fs.writeFile(path.join(st.dir, 'KNOWLEDGE.md'), knowledgeMarkdown(relevant, t.mod.name, patch))
+      await this.logLine(
+        rec,
+        'info',
+        relevant.changes.length || relevant.fixes.length
+          ? `Knowledge base: ${relevant.changes.length} patch change(s) and ${relevant.fixes.length} earlier fix(es) match this mod${relevant.fixes.length ? ` (${relevant.fixes.map((f) => f.entry.modName).join(', ')})` : ''}.`
+          : 'Knowledge base: nothing matches this mod yet.'
+      )
+      await fs.writeFile(path.join(st.dir, 'TASK.md'), taskMarkdown(ws, t, prep, frameworks, dependents, game, relevant, game.planFor(ws.classification)))
       await this.step(rec, 'checks', 'done', summarizeChecks(prep))
 
       // 3-4. AI rounds, each followed by a build and checks.
@@ -254,8 +274,10 @@ export class JobManager {
           const notes = await fs.readFile(path.join(st.dir, 'NOTES.md'), 'utf8').catch(() => '')
           if (notes) st.summary = notes.slice(0, 4000)
           st.status = 'ready'
+          st.outcome = 'untested'
           await this.step(rec, 'ready', 'done', 'Install it from the job page')
           await this.logLine(rec, 'info', 'The fix is built and passed the checks. It still needs an in-game test.')
+          await this.learn(rec, t, patch, notes)
           return
         }
         await fs.writeFile(path.join(st.dir, 'FEEDBACK.md'), feedbackMarkdown(round, lastResults))
@@ -272,6 +294,21 @@ export class JobManager {
     }
   }
 
+  /** Saves the finished fix to the knowledge base, so later jobs on similar mods can start from it. */
+  private async learn(rec: JobRecord, t: TriageResult, patch: string, notes: string): Promise<void> {
+    try {
+      const meta = await readJson<FixMeta>(path.join(rec.state.dir, 'fix.json'), {})
+      const { newChanges } = await this.d.knowledge.learnFromJob(rec.state, t, patch, meta, notes)
+      await this.logLine(
+        rec,
+        'info',
+        `Saved this fix to the knowledge base as untested${newChanges.length ? `, with ${newChanges.length} new patch change(s)` : ''}. Mark it after your in-game test.`
+      )
+    } catch (e) {
+      await this.logLine(rec, 'warn', `Couldn't save the fix to the knowledge base: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   /** Checks that apply to every game: the AI wrote its notes, and the fix doesn't overwrite other mods. */
   private async genericChecks(ws: JobWorkspace, t: TriageResult): Promise<CheckResult[]> {
     const out: CheckResult[] = []
@@ -279,6 +316,14 @@ export class JobManager {
     const notes = await exists(path.join(ws.dir, 'NOTES.md'))
     const missing = [!fixMeta || !['addon', 'replace'].includes(fixMeta.mode ?? '') ? 'fix.json (with mode "addon" or "replace")' : '', !notes ? 'NOTES.md' : ''].filter(Boolean)
     out.push({ id: 'notes', label: 'Fix description written', status: missing.length ? 'fail' : 'pass', details: missing.map((m) => `Missing ${m}`) })
+    const meta = (fixMeta ?? {}) as FixMeta
+    const thin = [!meta.problem ? 'problem' : '', !meta.approach ? 'approach' : '', !meta.lessons?.length ? 'lessons' : ''].filter(Boolean)
+    out.push({
+      id: 'knowledge',
+      label: 'Fix explained for the knowledge base',
+      status: thin.length ? 'warn' : 'pass',
+      details: thin.length ? [`fix.json has no ${thin.join(', ')}. Add them so the next similar mod starts from this fix.`] : []
+    })
 
     const mine = new Set((await walk(ws.outputDir)).map((f) => f.rel.toLowerCase()))
     const clashes: string[] = []
@@ -322,4 +367,15 @@ function summarizeChecks(results: CheckResult[]): string {
   return [`${by('pass')} passed`, by('warn') ? `${by('warn')} warnings` : '', by('fail') ? `${by('fail')} failed` : '', by('skipped') ? `${by('skipped')} skipped` : '']
     .filter(Boolean)
     .join(', ')
+}
+
+/** The text of the job's reports, for matching knowledge-base keywords. */
+async function readReports(dir: string): Promise<string> {
+  let out = ''
+  for (const f of await walk(dir, 500)) {
+    if (!/\.(md|tsv|json|txt)$/i.test(f.rel) || f.size > 2_000_000) continue
+    out += `\n${await fs.readFile(f.abs, 'utf8').catch(() => '')}`
+    if (out.length > 400_000) break
+  }
+  return out
 }

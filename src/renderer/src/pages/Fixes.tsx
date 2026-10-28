@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JobState, LogLine } from '../../../shared/types'
 import { ActionButton, Badge, Empty, Spinner, fmtDateTime, fmtTime, fmtUsd } from '../components'
-import { JOB_STATUS, isRunning } from '../labels'
+import { JOB_STATUS, OUTCOME, isRunning } from '../labels'
 import { useStore } from '../store'
 
 const TABS: { id: string; label: string }[] = [
@@ -9,6 +9,7 @@ const TABS: { id: string; label: string }[] = [
   { id: 'NOTES.md', label: 'What the fix does' },
   { id: 'FEEDBACK.md', label: 'Check results' },
   { id: 'TASK.md', label: 'Task given to the AI' },
+  { id: 'KNOWLEDGE.md', label: 'Knowledge used' },
   { id: 'reports/prepared.md', label: 'Reports' }
 ]
 
@@ -122,7 +123,10 @@ function JobDetail({ job }: { job: JobState }) {
             Started {fmtDateTime(job.createdAt)} · {job.backend} · round {job.round} of {job.maxRounds} · {fmtUsd(job.costUsd)}
           </div>
         </div>
-        <Badge tone={st.tone}>{st.label}</Badge>
+        <span className="row" style={{ gap: 6 }}>
+          {job.outcome && job.outcome !== 'untested' && <Badge tone={OUTCOME[job.outcome].tone}>{OUTCOME[job.outcome].label}</Badge>}
+          <Badge tone={st.tone}>{st.label}</Badge>
+        </span>
       </div>
 
       {job.summary && job.status !== 'failed' && <div className="notice ok">{firstParagraph(job.summary)}</div>}
@@ -173,7 +177,7 @@ function JobDetail({ job }: { job: JobState }) {
         ))}
       </div>
       {tab === 'log' ? (
-        <div className="log" ref={logRef}>
+        <div key="log" className="log" ref={logRef}>
           {log.map((l, i) => (
             <div key={i} className="l">
               <span className="t">{fmtTime(l.ts)}</span>
@@ -193,7 +197,7 @@ function JobDetail({ job }: { job: JobState }) {
           )}
         </div>
       ) : (
-        <div className="doc">{doc ?? <span className="faint">Not written yet.</span>}</div>
+        <div key={tab} className="doc">{doc ?? <span className="faint">Not written yet.</span>}</div>
       )}
     </div>
   )

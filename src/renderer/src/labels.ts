@@ -1,4 +1,4 @@
-import type { FrameworkState, JobStatus, ModKind, RecommendedAction, TriageResult, Verdict } from '../../shared/types'
+import type { FixOutcome, FrameworkState, JobStatus, KnowledgeSource, ModKind, RecommendedAction, TriageResult, Verdict } from '../../shared/types'
 
 export type Tone = 'green' | 'amber' | 'red' | 'cyan' | 'violet' | 'gray' | 'yellow'
 
@@ -93,4 +93,17 @@ export const FRAMEWORK_NAMES: Record<string, string> = {
   modsettings: 'Mod Settings',
   inputloader: 'Input Loader',
   nativesettings: 'Native Settings UI'
+}
+
+export const OUTCOME: Record<FixOutcome, { label: string; tone: Tone }> = {
+  works: { label: 'Works in game', tone: 'green' },
+  partial: { label: 'Partly works', tone: 'amber' },
+  failed: { label: "Doesn't work", tone: 'red' },
+  untested: { label: 'Not tested yet', tone: 'gray' }
+}
+
+export const SOURCE: Record<KnowledgeSource, { label: string; tone: Tone }> = {
+  'built-in': { label: 'Built in', tone: 'violet' },
+  learned: { label: 'Learned from a fix', tone: 'cyan' },
+  user: { label: 'Added by you', tone: 'yellow' }
 }

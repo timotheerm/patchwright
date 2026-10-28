@@ -12,11 +12,11 @@ These come from updating mods for Cyberpunk 2077 2.5 by hand, before Patchwright
 
 ## Better fixes
 
-6. **Shared compatibility notes.** When a fix works in game, offer to save a short, anonymous note ("ReLUX 1.6.2 on 2.5: sector edits re-matched by node type, works") to a shared list that other Patchwright users can read before starting their own fix. Fix files themselves are never shared, because many authors don't allow it.
+6. **Shared knowledge.** The knowledge base can already be exported and imported as a file. Next step: an opt-in shared list, so a fix that worked for one user ("ReLUX on 2.5: sector edits re-matched by node type, works") helps everyone else's next fix. Only the knowledge entries would be shared, never fix files, because many authors don't allow it.
 7. **Permissions reader.** Read the mod page's permissions section and show plainly whether a fix may be shared, so nobody uploads a patch the author doesn't allow (the ReLUX fix, for example, can't be uploaded).
 8. **In-game checks with CET.** Generate a small Cyber Engine Tweaks script per fix that checks the thing the fix is about (an entity's animation graph, a light that should be gone) and writes the result to a log Patchwright reads afterwards.
 9. **Visual diff for asset mods.** Show vanilla and modded entities side by side in the Fixes page (components, appearances, rig paths) instead of only the text report.
-10. **Learn from finished jobs.** After a confirmed fix, add a short entry to the game playbook automatically ("2.5 cooked these lights into worldStaticLightNode"), so the next job starts with that knowledge.
+10. **Knowledge from players' posts.** When posts on a mod page describe a workaround that worked ("rename X", "update Codeware first"), offer to save it as a patch change, so the next fix starts from it. (Learning from finished fixes is already built in.)
 
 ## Reach
 

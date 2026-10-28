@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CommunityReport, ModRef, TriageResult } from '../../../shared/types'
+import type { CommunityReport, ModRef, RelevantKnowledge, TriageResult } from '../../../shared/types'
 import { ActionButton, Badge, Empty, Kinds, VerdictBadge, fmtDate } from '../components'
-import { ACTION, FRAMEWORK_NAMES, GROUPS, groupOf, isRunning, type Group } from '../labels'
+import { ACTION, FRAMEWORK_NAMES, GROUPS, OUTCOME, groupOf, isRunning, type Group } from '../labels'
 import { useStore } from '../store'
 
 export function ModsPage() {
@@ -340,6 +340,8 @@ function Details({ r, onClose }: { r: TriageResult; onClose: () => void }) {
         </>
       )}
 
+      <KnownForMod r={r} />
+
       {r.mod.nexusModId && (
         <>
           <div className="section-title">
@@ -367,5 +369,47 @@ function Details({ r, onClose }: { r: TriageResult; onClose: () => void }) {
       <hr className="sep" />
       <NextStep r={r} />
     </div>
+  )
+}
+
+/** What a fix for this mod would start from: matching patch changes and earlier fixes. */
+function KnownForMod({ r }: { r: TriageResult }) {
+  const { api, go } = useStore()
+  const [k, setK] = useState<RelevantKnowledge | null>(null)
+  useEffect(() => {
+    let alive = true
+    setK(null)
+    void api.knowledgeFor(r).then((x) => alive && setK(x))
+    return () => {
+      alive = false
+    }
+  }, [api, r])
+  if (!k) return null
+  return (
+    <>
+      <div className="section-title">What Patchwright already knows</div>
+      {!k.changes.length && !k.fixes.length && <div className="faint small">Nothing in the knowledge base matches this mod yet. A fix would start from the reports alone.</div>}
+      {k.fixes.slice(0, 3).map(({ entry: f, why }) => (
+        <div key={f.id} className={`quote ${f.outcome === 'works' ? 'works' : f.outcome === 'failed' ? 'broken' : ''}`}>
+          <span className="row" style={{ gap: 6, marginBottom: 2 }}>
+            <b>{f.modName}</b>
+            <Badge tone={OUTCOME[f.outcome].tone}>{OUTCOME[f.outcome].label}</Badge>
+          </span>
+          <span className="faint">{why[0]}. </span>
+          {f.approach.length > 180 ? `${f.approach.slice(0, 180)}…` : f.approach}
+        </div>
+      ))}
+      {k.changes.slice(0, 3).map(({ entry: c }) => (
+        <div key={c.id} className="quote">
+          <span className="faint">Patch {c.patch}: </span>
+          {c.summary}
+        </div>
+      ))}
+      {(k.changes.length > 0 || k.fixes.length > 0) && (
+        <div className="faint small">
+          A fix for this mod starts from these automatically. <a onClick={() => go('knowledge')}>See all knowledge</a>
+        </div>
+      )}
+    </>
   )
 }

@@ -29,6 +29,8 @@ React UI (renderer)  --window.patchwright.*-->  preload  --IPC pw:<method>-->  m
 | Vortex | `vortex/vortex.ts` | staging folder scan; state through `Vortex.exe --get/--set/--del` while Vortex is closed |
 | Triage | `workflow/triage.ts` | evidence → verdict and next step |
 | Jobs | `workflow/jobs.ts` | the fix loop |
+| Prompts | `workflow/prompts.ts` | TASK.md and KNOWLEDGE.md, written from the triage, the checks and the knowledge base |
+| Knowledge | `knowledge/` | picking patch changes and earlier fixes for a mod; storing what finished fixes taught |
 | Recipes | `workflow/recipe.ts` | path-based edits on WolvenKit JSON |
 | Changelog | `workflow/changelog.ts` | change log with undo, as JSON and CHANGELOG.md |
 | Testing | `workflow/testing.ts` | save backups, log reading |
@@ -63,6 +65,27 @@ prepare ─▶ checks ─▶ AI round ─▶ build + verify ─▶ ready
 - The AI's standing instructions (system prompt plus the game playbook) are identical across rounds so they can be cached.
 - Claude Code keeps its session between rounds (`--resume`). The API backend keeps the message history in the job folder. The local backend trims old tool output to fit small context windows.
 
+### The AI's task
+
+The user never writes a prompt. `JobManager` builds the task after the workspace is prepared:
+
+1. `queryFromTriage` turns the mod into a query: patch, mod kinds, frameworks, Nexus id, and a lowercase text of its file paths, check results, triage reasons and reports.
+2. `selectKnowledge` (`knowledge/match.ts`) scores every entry against it and keeps the best (6 patch changes, 5 fixes):
+   - A **patch change** is kept only if it came with this patch or an earlier one, affects one of the mod's kinds (or any kind), and, when it has keywords, at least one keyword appears in the mod's text.
+   - A **fix** of the same mod (same Nexus id or name) always counts and scores highest. A fix of another mod needs the same kinds, or a shared kind plus a keyword hit. Fixes that worked in game score higher; fixes that failed score lower and are labelled "did NOT work in game: don't repeat it".
+   - Each pick keeps the reasons it was chosen.
+3. `knowledgeMarkdown` writes `KNOWLEDGE.md` with every picked entry and its reasons. `taskMarkdown` writes `TASK.md`: the mod, the triage, a short "What Patchwright already knows" section, a plan from `GameAdapter.planFor` (one step per mod kind), the checks, the mods that depend on this one, the folder rules, and the `fix.json` format.
+
+### Knowledge base
+
+`KnowledgeStore` (`knowledge/store.ts`) merges the game adapter's built-in entries (`GameAdapter.knowledge`, for Cyberpunk in `games/cyberpunk2077/knowledge.ts`) with the user's own file, `<data>/knowledge/<game>.json`:
+
+- A stored entry with a built-in entry's id overrides it, for example to record a different outcome. Removing a built-in entry only adds its id to `hidden`.
+- When a job is ready, `learnFromJob` reads the AI's `fix.json` (problem, approach, lessons, keywords, patch changes) and stores a fix with outcome `untested`. New patch changes are added unless a similar one exists for the same patch (word overlap of 0.5 or more).
+- `Engine.recordOutcome` sets `works`, `partial` or `failed` on both the job and its knowledge entry, from the Test or Knowledge page.
+- Export writes the user's own entries (not the built-in ones) to a JSON file; import adds entries whose ids are new.
+- Writes go through a queue, so two quick edits can't overwrite each other.
+
 ### AI backends
 
 All three implement `AiBackend` (`ai/types.ts`): `test`, `ask` (one question), and `runAgent` (a tool-using session in the job folder).
@@ -85,4 +108,4 @@ A ready fix is copied to `<staging>\<fix name>` (an existing copy is moved to `b
 
 ## Tests
 
-`tests/engine.test.ts` runs the whole engine on a temporary fake PC: a game folder, a staging folder with two script mods, a fake `Vortex.exe` (a Node script that keeps its state in a JSON file), and a scripted AI. It checks a mod, builds a fix, installs it, registers it in Vortex, and undoes both. The other test files cover the parsers and decision logic.
+`tests/engine.test.ts` runs the whole engine on a temporary fake PC: a game folder, a staging folder with two script mods, a fake `Vortex.exe` (a Node script that keeps its state in a JSON file), and a scripted AI. It checks a mod, builds a fix from the task the app wrote, learns from it, installs it, registers it in Vortex, and undoes both. It then records the in-game result and checks that a similar mod starts from the learned fix. `tests/knowledge.test.ts` covers matching, the store and `KNOWLEDGE.md`. The other test files cover the parsers and decision logic.

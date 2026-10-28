@@ -4,12 +4,17 @@ import type {
   CollectionInfo,
   CommunityReport,
   DeliveryResult,
+  FixOutcome,
+  FixRecord,
   FrameworkStatus,
   GameStatus,
   JobState,
+  KnowledgeBase,
   LogFinding,
   LogLine,
   ModRef,
+  PatchChange,
+  RelevantKnowledge,
   Settings,
   TriageResult,
   VortexStatus
@@ -47,6 +52,16 @@ export interface PatchwrightApi {
   readTestLogs(sinceIso: string, modNames: string[]): Promise<LogFinding[]>
   summarizeTest(findings: LogFinding[], userNotes: string): Promise<string>
 
+  /** Built-in and learned knowledge: patch changes, and fixes with their in-game outcome. */
+  getKnowledge(): Promise<KnowledgeBase>
+  saveKnowledgeEntry(kind: 'change' | 'fix', entry: PatchChange | FixRecord): Promise<KnowledgeBase>
+  deleteKnowledgeEntry(id: string): Promise<KnowledgeBase>
+  /** The knowledge a fix for this mod would start from. */
+  knowledgeFor(t: TriageResult): Promise<RelevantKnowledge>
+  recordOutcome(jobId: string, outcome: FixOutcome, note?: string): Promise<{ ok: boolean; message: string }>
+  exportKnowledge(): Promise<{ ok: boolean; path?: string; message: string }>
+  importKnowledge(file: string): Promise<{ ok: boolean; message: string }>
+
   getChangelog(): Promise<ChangelogEntry[]>
   undo(entryId: string): Promise<{ ok: boolean; message: string }>
   openPath(path: string): Promise<void>
@@ -81,6 +96,13 @@ export const API_METHODS = [
   'backupSaves',
   'readTestLogs',
   'summarizeTest',
+  'getKnowledge',
+  'saveKnowledgeEntry',
+  'deleteKnowledgeEntry',
+  'knowledgeFor',
+  'recordOutcome',
+  'exportKnowledge',
+  'importKnowledge',
   'getChangelog',
   'undo',
   'openPath',

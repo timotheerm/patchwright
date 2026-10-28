@@ -1,4 +1,4 @@
-import type { CheckResult, Classification, GameId, PatchInfo } from '../../shared/types'
+import type { CheckResult, Classification, GameId, KnowledgeBase, PatchInfo } from '../../shared/types'
 import type { CoreContext } from '../context'
 
 export interface FrameworkDef {
@@ -49,8 +49,10 @@ export interface GameAdapter {
   vortexGameId: string
   bundledPatches: PatchInfo[]
   frameworks: FrameworkDef[]
-  /** Markdown with what we learned updating mods for this game. Given to the AI on every job. */
+  /** Markdown with general rules for updating mods for this game. Given to the AI on every job. */
   playbook: string
+  /** Built-in knowledge: what past patches changed, and fixes that worked. Jobs pick the relevant parts. */
+  knowledge: KnowledgeBase
 
   defaultInstallPaths(env: NodeJS.ProcessEnv): string[]
   defaultSavesPath(env: NodeJS.ProcessEnv): string
@@ -69,6 +71,9 @@ export interface GameAdapter {
   fulfillRequests(ws: JobWorkspace, req: AiRequests, ctx: CoreContext, log: (m: string) => void): Promise<string[]>
   /** Turns srcDir into game files in outputDir, then checks the result. */
   buildAndVerify(ws: JobWorkspace, ctx: CoreContext, log: (m: string) => void): Promise<CheckResult[]>
+
+  /** Step-by-step plan for the AI, from the mod's types. The first step points at the job's knowledge. */
+  planFor(c: Classification): string[]
 
   /** What the user should look at in game for this kind of mod. */
   testHints(c: Classification): string[]

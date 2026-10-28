@@ -7,13 +7,18 @@ import type {
   CollectionInfo,
   CommunityReport,
   DeliveryResult,
+  FixOutcome,
+  FixRecord,
   FrameworkStatus,
   GameStatus,
   JobState,
+  KnowledgeBase,
   LogFinding,
   LogLine,
   ModRef,
+  PatchChange,
   PatchInfo,
+  RelevantKnowledge,
   Settings,
   TriageResult,
   VortexStatus
@@ -30,6 +35,8 @@ import { NexusClient, parseNexusInput } from './sources/nexus'
 import { fetchSteamPatches, pickPatches } from './sources/steam'
 import { compareVersions, copyDir, dateOnly, ensureDir, exists, isDir, isInside, movePath, nowIso, readHead, readJson, readPeFileVersion, safeName, timestampSlug, walk, writeJson } from './util'
 import { Vortex } from './vortex/vortex'
+import { queryFromTriage, selectKnowledge } from './knowledge/match'
+import { fixIdForJob, KnowledgeStore, type FixMeta } from './knowledge/store'
 import { Changelog } from './workflow/changelog'
 import { JobManager } from './workflow/jobs'
 import { backupSaves, collectFindings, testSummaryPrompt } from './workflow/testing'
@@ -59,6 +66,7 @@ const AI_SECRET_KEYS = ['anthropicApiKey', 'localApiKey'] as const
 export class Engine {
   readonly ctx: CoreContext
   readonly jobs: JobManager
+  readonly knowledge: KnowledgeStore
   private patchCache?: { at: number; baseline?: PatchInfo; latest?: PatchInfo; warnings: string[] }
   private fwCache?: { at: number; list: FrameworkStatus[] }
   private modsCache?: { at: number; list: ModRef[] }
@@ -78,13 +86,15 @@ export class Engine {
       env: opts.env ?? process.env,
       appVersion: opts.appVersion
     }
+    this.knowledge = new KnowledgeStore(path.join(opts.dataDir, 'knowledge', `${this.game.id}.json`), this.game.id, this.game.knowledge)
     this.jobs = new JobManager({
       ctx: this.ctx,
       game: this.game,
       backend: () => this.backend(),
       patch: async () => (await this.patches()).baseline,
       frameworks: () => this.frameworks(),
-      installedMods: () => this.listInstalledMods()
+      installedMods: () => this.listInstalledMods(),
+      knowledge: this.knowledge
     })
   }
 
@@ -561,6 +571,70 @@ export class Engine {
   async summarizeTest(findings: LogFinding[], notes: string): Promise<string> {
     const { baseline } = await this.patches()
     return this.backend().ask(testSummaryPrompt(findings, notes, baseline?.version ?? ''))
+  }
+
+  // ---------- knowledge ----------
+
+  getKnowledge(): Promise<KnowledgeBase> {
+    return this.knowledge.all()
+  }
+
+  saveKnowledgeEntry(kind: 'change' | 'fix', entry: PatchChange | FixRecord): Promise<KnowledgeBase> {
+    if (kind === 'change') return this.knowledge.saveChange(entry as PatchChange)
+    return this.knowledge.saveFix(entry as FixRecord)
+  }
+
+  deleteKnowledgeEntry(id: string): Promise<KnowledgeBase> {
+    return this.knowledge.remove(id)
+  }
+
+  /** The knowledge a fix for this mod would start from, before any job runs. */
+  async knowledgeFor(t: TriageResult): Promise<RelevantKnowledge> {
+    const { baseline } = await this.patches()
+    return selectKnowledge(await this.knowledge.all(), queryFromTriage(t, baseline?.version))
+  }
+
+  /** Records how a fix did in game, in the job and in the knowledge base. */
+  async recordOutcome(jobId: string, outcome: FixOutcome, note?: string): Promise<{ ok: boolean; message: string }> {
+    const job = this.jobs.get(jobId)
+    if (!job) return { ok: false, message: 'Job not found.' }
+    const id = fixIdForJob(jobId)
+    if (!(await this.knowledge.all()).fixes.some((f) => f.id === id)) {
+      const t = await readJson<TriageResult | null>(path.join(job.dir, 'triage.json'), null)
+      if (!t) return { ok: false, message: "This job's files are missing, so it can't be added to the knowledge base." }
+      const meta = await readJson<FixMeta>(path.join(job.dir, 'fix.json'), {})
+      const notes = await fs.readFile(path.join(job.dir, 'NOTES.md'), 'utf8').catch(() => '')
+      const { baseline } = await this.patches()
+      await this.knowledge.learnFromJob(job, t, baseline?.version ?? '', meta, notes)
+    }
+    await this.knowledge.setOutcome(id, outcome, note)
+    await this.jobs.setOutcome(jobId, outcome)
+    const said: Record<FixOutcome, string> = {
+      works: 'Saved: the fix works. Later fixes of similar mods will start from it.',
+      partial: 'Saved: the fix partly works. Later fixes will see what is still missing.',
+      failed: "Saved: the fix doesn't work. Later fixes will avoid repeating it. You can disable it in Vortex.",
+      untested: 'Marked as not tested yet.'
+    }
+    return { ok: true, message: said[outcome] }
+  }
+
+  async exportKnowledge(): Promise<{ ok: boolean; path?: string; message: string }> {
+    const dir = path.join(this.backupsDir, 'knowledge')
+    await ensureDir(dir)
+    const file = path.join(dir, `patchwright-knowledge-${this.game.id}-${timestampSlug()}.json`)
+    const kb = await this.knowledge.all()
+    // Built-in entries ship with the app; export only what this PC learned or the user wrote.
+    const own = { changes: kb.changes.filter((c) => c.source !== 'built-in'), fixes: kb.fixes.filter((f) => f.source !== 'built-in') }
+    await writeJson(file, { app: 'patchwright', gameId: this.game.id, exportedAt: nowIso(), ...own })
+    return { ok: true, path: file, message: `Saved ${own.changes.length + own.fixes.length} entries to ${file}.` }
+  }
+
+  async importKnowledge(file: string): Promise<{ ok: boolean; message: string }> {
+    const data = await readJson<Partial<KnowledgeBase> & { gameId?: string } | null>(file, null)
+    if (!data) return { ok: false, message: "That file isn't a Patchwright knowledge export." }
+    if (data.gameId && data.gameId !== this.game.id) return { ok: false, message: `That file is for ${data.gameId}, not ${this.game.name}.` }
+    const r = await this.knowledge.importFrom(data)
+    return { ok: true, message: `Added ${r.added} entries${r.skipped ? `, skipped ${r.skipped} already known or incomplete` : ''}.` }
   }
 
   // ---------- history ----------

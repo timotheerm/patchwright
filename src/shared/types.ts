@@ -192,6 +192,8 @@ export interface JobState {
   deliveredTo?: string
   /** Name of the fix mod, e.g. "ReLUX - 2.5 fix (Patchwright)". */
   fixName: string
+  /** What the user found when testing the fix in game. */
+  outcome?: FixOutcome
 }
 
 export interface LogLine {
@@ -311,3 +313,72 @@ export type AppEvent =
   | { type: 'triage-progress'; done: number; total: number; current?: string }
   | { type: 'triage-result'; result: TriageResult }
   | { type: 'notice'; level: 'info' | 'warn' | 'error'; text: string }
+
+// ---------- knowledge base ----------
+
+/** How a fix turned out in game. Untested fixes passed Patchwright's checks but nobody has played with them yet. */
+export type FixOutcome = 'works' | 'partial' | 'failed' | 'untested'
+
+export type KnowledgeSource = 'built-in' | 'learned' | 'user'
+
+/** Something a game patch changed that breaks mods. */
+export interface PatchChange {
+  id: string
+  gameId: GameId
+  /** Content patch it came with, e.g. "2.5". */
+  patch: string
+  /** What changed, in one or two sentences. */
+  summary: string
+  /** Mod types it breaks. Empty means any type. */
+  affects: ModKind[]
+  /** How the breakage shows up in game or in logs. */
+  symptoms?: string
+  /** What to do about it. */
+  remedy?: string
+  /** Lower-case words or paths that show a mod is affected, matched against its files and reports. */
+  keywords: string[]
+  source: KnowledgeSource
+  fromJob?: string
+  addedAt: string
+}
+
+/** A fix that was made for one mod, and what came of it. */
+export interface FixRecord {
+  id: string
+  gameId: GameId
+  patch: string
+  modName: string
+  nexusModId?: number
+  kinds: ModKind[]
+  frameworks: string[]
+  /** What was broken and why. */
+  problem: string
+  /** How it was fixed, step by step in prose. */
+  approach: string
+  /** Things to remember for the next mod like this one. */
+  lessons: string[]
+  keywords: string[]
+  outcome: FixOutcome
+  outcomeNote?: string
+  source: KnowledgeSource
+  fromJob?: string
+  addedAt: string
+  updatedAt: string
+}
+
+export interface KnowledgeBase {
+  changes: PatchChange[]
+  fixes: FixRecord[]
+}
+
+export interface Scored<T> {
+  entry: T
+  score: number
+  /** Why it was picked, for the user and the AI. */
+  why: string[]
+}
+
+export interface RelevantKnowledge {
+  changes: Scored<PatchChange>[]
+  fixes: Scored<FixRecord>[]
+}

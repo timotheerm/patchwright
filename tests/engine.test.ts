@@ -52,7 +52,16 @@ const scriptedAi = (): AiBackend => ({
     onEvent({ kind: 'text', text: `Read TASK.md (${task_md.length} chars)` })
     await fs.mkdir(path.join(task.cwd, 'output/r6/scripts/NeonHud'), { recursive: true })
     await fs.writeFile(path.join(task.cwd, 'output/r6/scripts/NeonHud/hud.reds'), '// fixed for 2.5\n')
-    await fs.writeFile(path.join(task.cwd, 'fix.json'), JSON.stringify({ mode: 'replace' }))
+    await fs.writeFile(
+      path.join(task.cwd, 'fix.json'),
+      JSON.stringify({
+        mode: 'replace',
+        problem: 'A HUD class was renamed in 2.5.',
+        approach: 'Pointed the script at the renamed class.',
+        lessons: ['Look up renamed classes in the new game scripts.'],
+        patchChanges: [{ summary: 'The HUD class NeonHudOld was renamed in 2.5.', affects: ['redscript'], keywords: ['neonhudold'] }]
+      })
+    )
     await fs.writeFile(path.join(task.cwd, 'NOTES.md'), '# Neon HUD 2.5 fix\n\nRenamed a function 2.5 removed.')
     return { ok: true, text: 'Done.', costUsd: 0.12, sessionId: 's1' }
   }
@@ -144,6 +153,17 @@ describe('engine on a fake PC', () => {
     expect(job.costUsd).toBe(0.12)
     // The original mod is untouched.
     expect(await fs.readFile(path.join(root, 'staging', 'Neon HUD-1234-1-0-1730000000', 'r6', 'scripts', 'NeonHud', 'hud.reds'), 'utf8')).toBe('// old\n')
+    // The task was built from the knowledge base, with a plan; the user typed nothing.
+    const task = await fs.readFile(path.join(job.dir, 'TASK.md'), 'utf8')
+    expect(task).toContain('## What Patchwright already knows')
+    expect(task).toContain('## Plan')
+    expect(task).toContain('reports/redscript.md')
+    const knowledge = await fs.readFile(path.join(job.dir, 'KNOWLEDGE.md'), 'utf8')
+    expect(knowledge).toContain('Improved Environment LODs')
+    // The finished fix was saved to the knowledge base, untested until the user tries it.
+    const learned = (await engine.getKnowledge()).fixes.find((f) => f.fromJob === job.id)
+    expect(learned).toMatchObject({ modName: 'Neon HUD', outcome: 'untested', problem: 'A HUD class was renamed in 2.5.' })
+    expect((await engine.getKnowledge()).changes.some((c) => c.summary.includes('NeonHudOld'))).toBe(true)
     // The other mod that mentions this one is listed for the AI.
     expect(await fs.readFile(path.join(job.dir, 'reports', 'dependents.md'), 'utf8')).toContain('Other')
 
@@ -169,6 +189,26 @@ describe('engine on a fake PC', () => {
     expect((await engine.undo(reg.id)).ok).toBe(true)
     const state = JSON.parse(await fs.readFile(path.join(root, 'vortex-state.json'), 'utf8'))
     expect(state.persistent.mods?.cyberpunk2077 ?? {}).toEqual({})
+  })
+
+  it('records the in-game result in the job and the knowledge base', async () => {
+    const job = engine.listJobs()[0]
+    const r = await engine.recordOutcome(job.id, 'works', 'HUD is back')
+    expect(r.ok).toBe(true)
+    expect(engine.listJobs()[0].outcome).toBe('works')
+    const f = (await engine.getKnowledge()).fixes.find((x) => x.fromJob === job.id)
+    expect(f).toMatchObject({ outcome: 'works', outcomeNote: 'HUD is back' })
+    // A second, similar mod now starts from it.
+    const [t] = await engine.triage([{ key: 'x', name: 'Neon HUD Lite', source: 'local', stagingPath: path.join(root, 'staging', 'Other-55-2-0-1730000001') }])
+    const k = await engine.knowledgeFor(t)
+    expect(k.fixes[0].entry.fromJob).toBe(job.id)
+  })
+
+  it('exports and imports learned knowledge', async () => {
+    const ex = await engine.exportKnowledge()
+    expect(ex.ok).toBe(true)
+    const im = await engine.importKnowledge(ex.path!)
+    expect(im.message).toContain('Added 0')
   })
 
   it('backs up saves', async () => {

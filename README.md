@@ -16,9 +16,10 @@ It starts with **Cyberpunk 2077** and **Vortex**. The game-specific parts sit be
    - whether the frameworks it needs (RED4ext, ArchiveXL, Codeware…) are ready for the patch;
    - concrete checks: script compile errors, world-sector edits that no longer match the game, errors in the game's logs.
 3. **Recommends a next step** for each mod: nothing to do, update in Vortex, update a framework first, test it in game, make a fix, or wait for the author (for native plugins, which only their author can rebuild).
-4. **Makes a fix** when needed. The AI works in a copy of the mod and writes a **separate fix mod**. The app does the unpacking, packing, compiling and checking between AI rounds, and sends the results back to the AI until the checks pass.
-5. **Tests in game.** It backs up your saves, creates a test profile in Vortex (a copy of your active profile), installs the fixes there, tells you what to look at, then reads the game's logs and sums up the test.
-6. **Keeps a history.** Everything it changes on your PC is logged with an Undo button, and also written to `CHANGELOG.md` in your backups folder.
+4. **Makes a fix** when needed. The AI works in a copy of the mod and writes a **separate fix mod**. The app does the unpacking, packing, compiling and checking between AI rounds, and sends the results back to the AI until the checks pass. **You never write a prompt:** the app writes the AI's task itself, from what it found in the mod and from its knowledge base (see below).
+5. **Learns from every fix.** Each finished fix is added to the knowledge base: what was broken, how it was fixed, the lessons, and anything new the patch changed. After you test it, you mark whether it worked, so later fixes of similar mods start from what worked and avoid what didn't.
+6. **Tests in game.** It backs up your saves, creates a test profile in Vortex (a copy of your active profile), installs the fixes there, tells you what to look at, then reads the game's logs and sums up the test.
+7. **Keeps a history.** Everything it changes on your PC is logged with an Undo button, and also written to `CHANGELOG.md` in your backups folder.
 
 ## Safety rules
 
@@ -69,6 +70,21 @@ Other scripts: `npm test` runs the unit tests, `npm run typecheck` checks types.
 
 On first start, open **Settings**, press **Find paths automatically**, check what it found, pick an AI, and save.
 
+## The knowledge base
+
+Every fix starts from what Patchwright already knows, so the AI doesn't rediscover it and you don't have to explain it. The knowledge base holds two kinds of entries:
+
+- **Patch changes:** what a game patch changed that breaks mods, which mod types it affects, how it shows up and how to fix it. For example, 2.5 switched V's first-person entity to `player_dualwield.animgraph`, which breaks body mods that ship old copies of V's entity files.
+- **Fixes:** each fix made before, with the mod's type, what was broken, how it was fixed, the lessons learned, and whether it worked in game.
+
+It ships with what was learned updating mods for Cyberpunk 2077 2.5 by hand: six patch changes, and the fixes for SP0 Body Mod, Improved Environment LODs, ReImagined and ReLUX.
+
+When a fix starts, Patchwright picks the entries that match the mod. It looks at the patch, the mod's type and frameworks, and words found in the mod's files and check reports (a sector path, a class name, `player_ranged`…). A fix of the same mod comes first, then fixes that worked on mods of the same type. A fix that didn't work in game is still shown, marked so the AI doesn't repeat it. The picked entries go to `KNOWLEDGE.md` in the job folder, with the reason each one was picked, and a short version goes into `TASK.md` with a step-by-step plan for the mod's type.
+
+When the fix is ready, the AI's explanation in `fix.json` (problem, approach, lessons, new patch changes) is added back, marked "not tested yet". You mark the result on the Test page (works, partly, doesn't work), or on the Knowledge page, where you can also add a patch change yourself, hide built-in entries, and export or import what your PC has learned.
+
+![Knowledge page](docs/screenshots/knowledge.png)
+
 ## How a fix is made
 
 Each fix runs in its own job folder (`Documents\Patchwright\jobs\<mod> <id>`):
@@ -78,21 +94,22 @@ original/      copy of the mod (read only)
 unpacked/      the mod's archives, unpacked and converted to JSON by WolvenKit
 vanilla/       the same files from the current game version, for comparison
 reports/       what changed: asset differences, stale sector edits, compile errors, log lines
-TASK.md        the task for the AI
-PLAYBOOK.md    what has worked before for this game
+TASK.md        the task for the AI, written by the app: the mod, what the checks found, what is already known, and a plan
+KNOWLEDGE.md   the patch changes and earlier fixes that match this mod, and why each was picked
+PLAYBOOK.md    general rules for fixing this game's mods
 FEEDBACK.md    results of the last build and checks
 output/        the fix mod, laid out like the game folder
 recipe.json    optional: bulk edits of game files (see below)
-fix.json       "addon" (works next to the original) or "replace" (the original must be disabled)
+fix.json       "addon" (works next to the original) or "replace" (the original must be disabled), plus the AI's explanation for the knowledge base
 NOTES.md       the AI's description of the fix and how to test it
 ```
 
 A job goes through these steps:
 
-1. **Prepare.** Copy the mod, unpack its archives, extract the matching files from the current game, and write reports.
-2. **AI round.** The AI reads `TASK.md` and the reports and writes the fix. It can ask for more game files in `requests.json`; the app extracts them and starts the next round.
+1. **Prepare.** Copy the mod, unpack its archives, extract the matching files from the current game, write reports, pick the matching knowledge, and write `TASK.md`.
+2. **AI round.** The AI reads `TASK.md`, `KNOWLEDGE.md` and the reports and writes the fix. It can ask for more game files in `requests.json`; the app extracts them and starts the next round.
 3. **Build and check.** The app applies `recipe.json`, packs archives, test-compiles scripts, parses YAML, checks sector edits against the game, checks the folder layout, and makes sure the fix doesn't overwrite other mods. Failures go to `FEEDBACK.md` and the AI gets another round.
-4. **Ready.** When everything passes, you install the fix into Vortex from the Fixes page and test it.
+4. **Ready.** When everything passes, the fix is added to the knowledge base, and you install it into Vortex from the Fixes page and test it.
 
 **Recipes** let the AI rebuild many game files without writing each one out. A recipe copies a source file (from the game, the mod, or the AI's own `src/`) and applies a few edits by path. For example, the SP0 Body Mod fix needed the five 2.5 player entity files rebuilt for each of 32 body sizes, with only the rig path changed. That is one short recipe instead of 160 hand-written files.
 
@@ -101,8 +118,9 @@ A job goes through these steps:
 Built and tested:
 
 - the engine: patch detection, Nexus mod and collection lookups, Vortex staging scan and state access, mod checks, fix jobs, delivery, changelog and undo
-- an end-to-end run on a fake PC (`tests/engine.test.ts`), with a fake Vortex command line and a scripted AI: check a mod, build a fix, install it, register it in Vortex, undo both
-- 56 unit tests in total, and type checks for the main and UI code
+- the knowledge base: picking entries for a mod, writing the task, learning from finished fixes, recording the in-game result, export and import
+- an end-to-end run on a fake PC (`tests/engine.test.ts`), with a fake Vortex command line and a scripted AI: check a mod, build a fix from a task the app wrote, learn from it, install it, register it in Vortex, undo both, then check that a similar mod starts from the learned fix
+- 69 tests in total, and type checks for the main and UI code
 - the UI, in a browser with demo data (screenshots below)
 
 Not yet tested on a real PC:
@@ -118,10 +136,11 @@ The WolvenKit and redscript command lines are configurable templates (Settings >
 src/shared/          types and the UI API shared by both sides
 src/core/            the engine (plain Node, no Electron)
   engine.ts          one object the UI talks to
-  games/             one adapter per game; cyberpunk2077/ has the classifier, checks, tools and playbook
+  games/             one adapter per game; cyberpunk2077/ has the classifier, checks, tools, playbook and built-in knowledge
   sources/           Steam news, Nexus API, Nexus posts
   vortex/            Vortex state and staging folder
   ai/                Claude Code, Claude API and local model backends, and the AI's file tools
+  knowledge/         the knowledge base: matching entries to a mod, storing what fixes taught
   workflow/          triage, fix jobs, recipes, prompts, testing, changelog
 src/main/            Electron main process: window, IPC, encrypted secrets
 src/preload/         exposes the engine API to the UI
@@ -138,7 +157,9 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Ideas for what to bui
 |---|---|
 | ![Overview](docs/screenshots/overview.png) | ![Collection check](docs/screenshots/collection.png) |
 | ![Fix in progress](docs/screenshots/fixes.png) | ![Fix ready](docs/screenshots/fix-ready.png) |
-| ![Test in game](docs/screenshots/test.png) | ![Settings](docs/screenshots/settings.png) |
+| ![What the app knows about a mod](docs/screenshots/mods-knowledge.png) | ![Knowledge used by a fix](docs/screenshots/fix-knowledge.png) |
+| ![Test in game](docs/screenshots/test.png) | ![Marking how a fix did](docs/screenshots/test-outcome.png) |
+| ![History](docs/screenshots/history.png) | ![Settings](docs/screenshots/settings.png) |
 
 ## License
 

@@ -15,8 +15,14 @@ import type {
   ModKind,
   ModRef,
   Settings,
+  FixRecord,
+  KnowledgeBase,
+  PatchChange,
+  RelevantKnowledge,
   TriageResult
 } from '../../shared/types'
+import { CYBERPUNK_KNOWLEDGE } from '../../core/games/cyberpunk2077/knowledge'
+import { queryFromTriage, selectKnowledge } from '../../core/knowledge/match'
 
 const PATCH = { version: '2.5', releaseDate: '2026-10-22', title: 'Cyberpunk 2077 Update 2.5', source: 'bundled' as const }
 const STAGING = 'D:\\Vortex Mods\\cyberpunk2077'
@@ -137,12 +143,12 @@ const RESULTS: TriageResult[] = [
   {
     mod: LODS,
     nexus: nexusInfo(LODS, '2024-11-30', '1.2', '2024-11-30'),
-    classification: cls(['ini'], 1, { risk: 'low' }),
+    classification: cls(['redscript'], 3, { frameworksUsed: ['redscript'], risk: 'medium' }),
     community: { checkedAt: minutesAgo(3), works: 0, broken: 0, source: 'keyword', snippets: [] },
-    checks: [],
+    checks: [{ id: 'redscript', label: 'Scripts compile against 2.5', status: 'pass', details: [] }],
     verdict: 'not-updated',
     action: 'test-in-game',
-    reasons: ['Last file was released 30 Nov 2024, before 2.5.', 'It only changes engine settings, which rarely break. Check it in game.'],
+    reasons: ['Last file was released 30 Nov 2024, before 2.5.', "Its scripts compile against 2.5, but a clean compile doesn't prove it works. Check it in game."],
     checkedAt: minutesAgo(3)
   },
   {
@@ -334,6 +340,16 @@ export function createMockApi(): PatchwrightApi {
     })
   ]
   const files: Record<string, Record<string, string>> = { k3f9a2: NOTES.relux, p81c0d: NOTES.reimagined, a07e55: NOTES.sp0 }
+  jobs[2].outcome = 'works'
+
+  // The demo jobs stand for the fixes that are built into the knowledge base.
+  let kb: KnowledgeBase = structuredClone(CYBERPUNK_KNOWLEDGE)
+  const fixIdOf: Record<string, string> = { a07e55: 'cp2077-2.5-sp0-body-mod', p81c0d: 'cp2077-2.5-reimagined', k3f9a2: 'cp2077-2.5-relux' }
+  const triageOf = (j: JobState): TriageResult | undefined => RESULTS.find((r) => r.mod.key === j.modKey)
+  for (const j of jobs) {
+    const t = triageOf(j)
+    if (t) files[j.id]['KNOWLEDGE.md'] = knowledgeText(selectKnowledge(kb, queryFromTriage(t, '2.5', 'streaming: nodedeletions player_ranged')), j.modName)
+  }
 
   seedLog(
     'k3f9a2',
@@ -342,7 +358,10 @@ export function createMockApi(): PatchwrightApi {
       ['info', 'Unpacking 6 archives with WolvenKit 10.0.0-beta.1'],
       ['info', 'Extracting 117 vanilla 2.5 sectors'],
       ['warn', 'Sector edits: 31 of 117 no longer match 2.5. Wrote reports/sectors.md and reports/nodes.tsv'],
+      ['info', 'Knowledge base: 3 patch change(s) and 2 earlier fix(es) match this mod (ReLUX, ReImagined).'],
       ['info', 'Starting Claude Code (round 1 of 4)'],
+      ['tool', 'Read KNOWLEDGE.md'],
+      ['ai', 'KNOWLEDGE.md says ReLUX was fixed for 2.5 before by matching moved nodes by position and mesh, and that worked in game. I will start from that.'],
       ['tool', 'Read reports/sectors.md'],
       ['tool', 'Read reports/nodes.tsv'],
       ['ai', 'The mismatches are all in Japantown interiors. 2.5 cooked these lights into worldStaticLightNode, so the indexes moved. I will match each edit by node type and position instead of by index.'],
@@ -409,7 +428,7 @@ export function createMockApi(): PatchwrightApi {
     const plan: [string, string, [LogLine['level'], string][]][] = [
       ['prepare', 'Copied the mod', [['info', `Copying ${j.modName} from Vortex staging`]]],
       ['checks', 'Compared with 2.5', [['info', 'Extracting the matching 2.5 game files'], ['warn', 'Wrote reports/assets.md']]],
-      ['ai', '1 round', [['info', 'Starting Claude Code (round 1 of 4)'], ['tool', 'Read TASK.md'], ['ai', 'Reading the reports first.'], ['tool', 'Write recipe.json'], ['tool', 'Write NOTES.md']]],
+      ['ai', '1 round', [['info', 'Knowledge base: 3 patch change(s) and 2 earlier fix(es) match this mod.'], ['info', 'Starting Claude Code (round 1 of 4)'], ['tool', 'Read TASK.md'], ['ai', 'Reading the reports first.'], ['tool', 'Write recipe.json'], ['tool', 'Write NOTES.md']]],
       ['verify', 'All checks passed', [['info', 'Round 1: building and checking the fix']]]
     ]
     const status: Record<string, JobState['status']> = { prepare: 'preparing', checks: 'preparing', ai: 'running-ai', verify: 'verifying' }
@@ -426,7 +445,27 @@ export function createMockApi(): PatchwrightApi {
     }
     setStep(j, 'ready', 'done', 'Not installed yet')
     j.status = 'ready'
+    j.outcome = 'untested'
     j.costUsd = 0.88
+    const t = triageOf(j)
+    kb.fixes.push({
+      id: `job-${j.id}`,
+      gameId: 'cyberpunk2077',
+      patch: '2.5',
+      modName: j.modName,
+      nexusModId: t?.mod.nexusModId,
+      kinds: t?.classification?.kinds ?? [],
+      frameworks: t?.classification?.frameworksUsed ?? [],
+      problem: '(Demo) What the AI found broken.',
+      approach: "(Demo) How the AI fixed it, from fix.json.",
+      lessons: [],
+      keywords: [],
+      outcome: 'untested',
+      source: 'learned',
+      fromJob: j.id,
+      addedAt: now(),
+      updatedAt: now()
+    })
     files[j.id] = { 'NOTES.md': `# ${j.modName} - 2.5 fix\n\n(Demo) The AI's description of the fix goes here.`, 'TASK.md': '# Task', 'FEEDBACK.md': '# Round 1 checks\n\n- [pass] all' }
     emit({ type: 'job', job: { ...j } })
     pushLog(j.id, 'info', 'All checks passed. Ready to install in a test profile.')
@@ -585,6 +624,30 @@ export function createMockApi(): PatchwrightApi {
       await sleep(1500)
       return 'The SP0 Body Mod fix works: you saw the reload animation, and no log line names it. Keep it.\n\nThe ArchiveXL warning about ReLUX means two mods remove the same lamp, which is harmless. The ReImagined line is a style warning, not an error.\n\nCrowd Density Plugin did not load because it is built for an older game version. Disable it in Vortex until its author updates it.'
     },
+    getKnowledge: async () => structuredClone(kb),
+    saveKnowledgeEntry: async (kind, entry) => {
+      if (kind === 'change') kb.changes = [...kb.changes.filter((c) => c.id !== entry.id), entry as PatchChange]
+      else kb.fixes = [...kb.fixes.filter((f) => f.id !== entry.id), { ...(entry as FixRecord), updatedAt: now() }]
+      return structuredClone(kb)
+    },
+    deleteKnowledgeEntry: async (id) => {
+      kb = { changes: kb.changes.filter((c) => c.id !== id), fixes: kb.fixes.filter((f) => f.id !== id) }
+      return structuredClone(kb)
+    },
+    knowledgeFor: async (t) => selectKnowledge(kb, queryFromTriage(t, '2.5')),
+    recordOutcome: async (jobId, outcome, note) => {
+      const j = jobs.find((x) => x.id === jobId)
+      if (!j) return { ok: false, message: 'Job not found.' }
+      const id = fixIdOf[jobId] ?? `job-${jobId}`
+      const f = kb.fixes.find((x) => x.id === id)
+      if (f) Object.assign(f, { outcome, outcomeNote: note ?? f.outcomeNote, updatedAt: now() })
+      j.outcome = outcome
+      emit({ type: 'job', job: { ...j } })
+      const said = { works: 'Saved: the fix works. Later fixes of similar mods will start from it.', partial: 'Saved: the fix partly works.', failed: "Saved: the fix doesn't work. Later fixes will avoid repeating it.", untested: 'Marked as not tested yet.' }
+      return { ok: true, message: said[outcome] }
+    },
+    exportKnowledge: async () => ({ ok: true, path: `${BACKUPS}\\knowledge\\patchwright-knowledge.json`, message: `Saved ${kb.fixes.filter((f) => f.source !== 'built-in').length} entries to ${BACKUPS}\\knowledge.` }),
+    importKnowledge: async () => ({ ok: false, message: 'Importing needs the desktop app.' }),
     getChangelog: async () => changelog.map((c) => ({ ...c })),
     undo: async (id) => {
       await sleep(500)
@@ -604,4 +667,17 @@ export function createMockApi(): PatchwrightApi {
     }
   }
   return api
+}
+
+/** A short KNOWLEDGE.md for the demo jobs. The real one is written by the engine. */
+function knowledgeText(k: RelevantKnowledge, modName: string): string {
+  return [
+    `# What Patchwright knows that may help with "${modName}" on patch 2.5`,
+    '',
+    '## Patch changes',
+    ...k.changes.map(({ entry: c, why }) => `- ${c.summary}${c.remedy ? `\n  Remedy: ${c.remedy}` : ''}\n  Picked because: ${why.join('; ')}`),
+    '',
+    '## Earlier fixes',
+    ...k.fixes.map(({ entry: f, why }) => `- ${f.modName} (${f.outcome}): ${f.approach}\n  Picked because: ${why.join('; ')}`)
+  ].join('\n')
 }

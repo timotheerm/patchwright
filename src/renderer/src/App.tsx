@@ -4,6 +4,7 @@ import { api, demo } from './api'
 import { isRunning } from './labels'
 import { FixesPage } from './pages/Fixes'
 import { HistoryPage } from './pages/History'
+import { KnowledgePage } from './pages/Knowledge'
 import { ModsPage } from './pages/Mods'
 import { OverviewPage } from './pages/Overview'
 import { SettingsPage } from './pages/Settings'
@@ -15,6 +16,7 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'mods', label: 'Mods', icon: '▦' },
   { id: 'fixes', label: 'Fixes', icon: '✦' },
   { id: 'test', label: 'Test', icon: '▶' },
+  { id: 'knowledge', label: 'Knowledge', icon: '◆' },
   { id: 'history', label: 'History', icon: '↺' },
   { id: 'settings', label: 'Settings', icon: '⚙' }
 ]
@@ -151,6 +153,7 @@ export function App() {
           {page === 'mods' && <ModsPage />}
           {page === 'fixes' && <FixesPage />}
           {page === 'test' && <TestPage />}
+          {page === 'knowledge' && <KnowledgePage />}
           {page === 'history' && <HistoryPage />}
           {page === 'settings' && <SettingsPage />}
         </main>

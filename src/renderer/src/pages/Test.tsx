@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { LogFinding } from '../../../shared/types'
+import type { FixOutcome, LogFinding } from '../../../shared/types'
 import { ActionButton, Badge, fmtDateTime } from '../components'
-import { JOB_STATUS } from '../labels'
+import { JOB_STATUS, OUTCOME } from '../labels'
 import { local, useStore } from '../store'
 
 interface Session {
@@ -212,13 +212,24 @@ export function TestPage() {
             </div>
           )}
           {summary && (
-            <div className="card">
+            <div className="card" style={{ marginBottom: 10 }}>
               <h2>Summary</h2>
               <div style={{ whiteSpace: 'pre-wrap' }}>{summary}</div>
               <hr className="sep" />
               <div className="faint small">
                 To drop a fix, disable it in Vortex, or undo its install in <a onClick={() => go('history')}>History</a>. Your saves backup stays until you delete it.
               </div>
+            </div>
+          )}
+          {installed.length > 0 && (
+            <div className="card">
+              <h2>How did each fix do?</h2>
+              <p className="muted small" style={{ marginTop: -4 }}>
+                Patchwright remembers your answer. Fixes that work become the starting point for similar mods; fixes that don't are marked so they aren't repeated.
+              </p>
+              {installed.map((j) => (
+                <OutcomeRow key={j.id} jobId={j.id} name={j.fixName} outcome={j.outcome} notes={notes} />
+              ))}
             </div>
           )}
         </div>
@@ -236,6 +247,29 @@ function Step({ n, done, title, text, children }: { n: number; done: boolean; ti
         <p>{text}</p>
       </div>
       <div>{children}</div>
+    </div>
+  )
+}
+
+function OutcomeRow({ jobId, name, outcome, notes }: { jobId: string; name: string; outcome?: FixOutcome; notes: string }) {
+  const { api, toast } = useStore()
+  const mark = async (o: FixOutcome): Promise<void> => {
+    const r = await api.recordOutcome(jobId, o, notes || undefined)
+    toast(r.message, r.ok ? 'ok' : 'error')
+  }
+  return (
+    <div className="row" style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+      <span style={{ flex: 1, fontWeight: 600 }}>{name}</span>
+      {outcome && <Badge tone={OUTCOME[outcome].tone}>{OUTCOME[outcome].label}</Badge>}
+      <ActionButton className="sm" onClick={() => mark('works')}>
+        It works
+      </ActionButton>
+      <ActionButton className="sm" onClick={() => mark('partial')}>
+        Partly
+      </ActionButton>
+      <ActionButton className="sm danger" onClick={() => mark('failed')}>
+        It doesn't work
+      </ActionButton>
     </div>
   )
 }

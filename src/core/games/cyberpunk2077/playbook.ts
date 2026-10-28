@@ -1,6 +1,7 @@
 /**
- * What we learned updating Cyberpunk 2077 mods by hand for patch 2.5. Every AI job gets this text,
- * so keep it factual and short. Add to it whenever a fix teaches something new.
+ * General rules for updating Cyberpunk 2077 mods, learned by hand on patch 2.5. Every AI job gets this
+ * text, so keep it factual and short. Facts about one patch or one mod belong in knowledge.ts instead,
+ * where jobs pick only the relevant entries.
  */
 export const CYBERPUNK_PLAYBOOK = `# Cyberpunk 2077 mod update playbook
 
@@ -53,14 +54,9 @@ export const CYBERPUNK_PLAYBOOK = `# Cyberpunk 2077 mod update playbook
   when ReLUX-<Area>.archive is deployed. Never rename or merge another mod's archives.
 - Check that the fix's files don't overwrite files from other installed mods.
 
-## Known changes in patch 2.5
-- V's first-person entity gained dual-wield animation sets and now uses player_dualwield.animgraph
-  instead of player_ranged.animgraph. Old copies of player entities break reloads and dual wielding.
-- worldInstancedMeshNode no longer exposes "mesh" to scripts.
-- Many vanilla map lamps and props became cooked/instanced nodes, so ArchiveXL node deletions that
-  name the old node type are rejected.
-- WolvenKit 9.x can't read 2.5 map sectors; WolvenKit 10.0.0-beta.1 or newer is needed.
-- ArchiveXL 1.28.1 and Codeware 1.21.1 support 2.5.
+## Patch-specific knowledge
+- KNOWLEDGE.md in the job folder lists what recent patches changed and how similar mods were fixed,
+  picked for this mod from Patchwright's knowledge base. Fixes marked as failed show what not to repeat.
 
 ## Saves
 - Back up saves before testing. A save that fails to load after removing a mod may have been damaged

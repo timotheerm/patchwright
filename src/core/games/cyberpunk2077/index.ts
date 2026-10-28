@@ -7,6 +7,7 @@ import { ensureDir, exists, readHead, readJson, readTail, toPosix, walk, writeJs
 import type { AiRequests, GameAdapter } from '../types'
 import { classifyFiles } from './classify'
 import { FRAMEWORKS } from './frameworks'
+import { CYBERPUNK_KNOWLEDGE } from './knowledge'
 import { CYBERPUNK_PLAYBOOK } from './playbook'
 import { compileRedscript, SERIALIZE_EXTS, WolvenKit } from './tools'
 import { checkSectorEdit, diffSummaries, sectorNodes, summarize, xlSectorEdits } from './cr2wjson'
@@ -126,6 +127,7 @@ export const cyberpunk2077: GameAdapter = {
   bundledPatches: BUNDLED_PATCHES,
   frameworks: FRAMEWORKS,
   playbook: CYBERPUNK_PLAYBOOK,
+  knowledge: CYBERPUNK_KNOWLEDGE,
 
   defaultInstallPaths: () => ['C:\\Program Files (x86)\\Steam\\steamapps\\common\\Cyberpunk 2077'],
 
@@ -499,6 +501,35 @@ export const cyberpunk2077: GameAdapter = {
     const lua = out.filter((f) => f.rel.toLowerCase().endsWith('.lua'))
     if (lua.length) results.push(check('lua', 'CET Lua', 'warn', [`${lua.length} Lua file(s). Lua isn't checked before the game runs; read the CET log after testing.`]))
     return results
+  },
+
+  planFor(c) {
+    const steps = [
+      'Read KNOWLEDGE.md. If it lists a fix for this same mod that worked, start from that approach. If it lists one that failed, do something different. Check each listed patch change against this mod.',
+      'Read reports/prepared.md for an overview of what the checks found.'
+    ]
+    if (c.kinds.includes('archive'))
+      steps.push(
+        "Read reports/assets.md. For each file the mod copies from vanilla that differs from the new game's file, find the mod's own edit (the few fields it changes) and rebuild the file from vanilla/ with only that edit, using recipe.json. Start new archive names with \"!!\"."
+      )
+    if (c.kinds.includes('archivexl'))
+      steps.push(
+        'Read reports/sectors.md. For every sector edit that no longer matches, find the right node in vanilla/*.nodes.tsv by type and position (not by index), and write a corrected .xl under output/archive/pc/mod/. Keep the original archive names.'
+      )
+    if (c.kinds.includes('redscript'))
+      steps.push(
+        "Read reports/redscript.md. Fix each compile error in a copy of the script under output/r6/scripts/, changing only what the error needs. If a feature can't work any more, remove just that feature and say so. A clean compile isn't proof: compare what the script changes with the new game's data."
+      )
+    if (c.kinds.includes('tweakxl'))
+      steps.push('Check that each TweakDB record the YAML edits still exists (reports/logs.md has TweakXL errors). Rename records that moved and drop ones that were removed.')
+    if (c.kinds.includes('cet'))
+      steps.push('Read reports/logs.md for Lua errors. Patch the failing calls in a copy under output/bin/x64/plugins/cyber_engine_tweaks/mods/, with nil checks around game objects.')
+    if (c.kinds.includes('ini')) steps.push("Compare the settings with the new game's defaults. Drop or rename keys the game no longer reads.")
+    steps.push(
+      'If you need more files from the game, list them in requests.json and end your turn; Patchwright extracts them and starts the next round.',
+      'Write fix.json (mode, problem, approach, lessons, and any patch changes you discovered) and NOTES.md with a short in-game test. End your turn.'
+    )
+    return steps
   },
 
   testHints(c) {

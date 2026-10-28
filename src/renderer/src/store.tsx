@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 import type { PatchwrightApi } from '../../shared/api'
 import type { CollectionInfo, GameStatus, JobState, Settings, TriageResult } from '../../shared/types'
 
-export type Page = 'overview' | 'mods' | 'fixes' | 'test' | 'history' | 'settings'
+export type Page = 'overview' | 'mods' | 'fixes' | 'test' | 'knowledge' | 'history' | 'settings'
 
 export interface Store {
   api: PatchwrightApi
