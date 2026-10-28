@@ -1,0 +1,93 @@
+import type {
+  AppEvent,
+  ChangelogEntry,
+  CollectionInfo,
+  CommunityReport,
+  DeliveryResult,
+  FrameworkStatus,
+  GameStatus,
+  JobState,
+  LogFinding,
+  LogLine,
+  ModRef,
+  Settings,
+  TriageResult,
+  VortexStatus
+} from './types'
+
+/** Everything the UI can ask the engine to do. Exposed on window.patchwright by the preload script. */
+export interface PatchwrightApi {
+  getSettings(): Promise<Settings>
+  saveSettings(patch: Partial<Settings>): Promise<Settings>
+  detectPaths(): Promise<Partial<Settings>>
+
+  getGameStatus(refresh?: boolean): Promise<GameStatus>
+  getFrameworks(): Promise<FrameworkStatus[]>
+  testAi(): Promise<{ ok: boolean; detail: string }>
+  testNexus(): Promise<{ ok: boolean; detail: string }>
+
+  vortexStatus(): Promise<VortexStatus>
+  listInstalledMods(): Promise<ModRef[]>
+  /** Accepts a Nexus mod URL or id, a collection URL, or a local folder path. */
+  resolveInput(input: string): Promise<{ mods: ModRef[]; collection?: CollectionInfo; notes: string[] }>
+  triage(mods: ModRef[]): Promise<TriageResult[]>
+  checkCommunity(mod: ModRef): Promise<CommunityReport>
+
+  startJob(triage: TriageResult): Promise<JobState>
+  cancelJob(jobId: string): Promise<void>
+  listJobs(): Promise<JobState[]>
+  getJobLog(jobId: string): Promise<LogLine[]>
+  readJobFile(jobId: string, relPath: string): Promise<string | null>
+  deliverJob(jobId: string, mode: 'staging' | 'zip'): Promise<DeliveryResult>
+
+  /** What to look at in game for each fix, from the mod's type. */
+  getTestHints(jobIds: string[]): Promise<{ jobId: string; fixName: string; hints: string[] }[]>
+  createTestProfile(): Promise<{ ok: boolean; message: string }>
+  backupSaves(): Promise<{ ok: boolean; path?: string; message: string }>
+  readTestLogs(sinceIso: string, modNames: string[]): Promise<LogFinding[]>
+  summarizeTest(findings: LogFinding[], userNotes: string): Promise<string>
+
+  getChangelog(): Promise<ChangelogEntry[]>
+  undo(entryId: string): Promise<{ ok: boolean; message: string }>
+  openPath(path: string): Promise<void>
+  openExternal(url: string): Promise<void>
+  pickPath(kind: 'file' | 'folder', title: string): Promise<string | null>
+
+  onEvent(cb: (e: AppEvent) => void): () => void
+}
+
+/** IPC channel names. Every method above maps to `pw:<name>`. */
+export const API_METHODS = [
+  'getSettings',
+  'saveSettings',
+  'detectPaths',
+  'getGameStatus',
+  'getFrameworks',
+  'testAi',
+  'testNexus',
+  'vortexStatus',
+  'listInstalledMods',
+  'resolveInput',
+  'triage',
+  'checkCommunity',
+  'startJob',
+  'cancelJob',
+  'listJobs',
+  'getJobLog',
+  'readJobFile',
+  'deliverJob',
+  'getTestHints',
+  'createTestProfile',
+  'backupSaves',
+  'readTestLogs',
+  'summarizeTest',
+  'getChangelog',
+  'undo',
+  'openPath',
+  'openExternal',
+  'pickPath'
+] as const
+
+export type ApiMethod = (typeof API_METHODS)[number]
+
+export const EVENT_CHANNEL = 'pw:event'
